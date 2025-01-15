@@ -31,11 +31,7 @@
 
 package org.opensearch.snapshots;
 
-import com.carrotsearch.hppc.cursors.ObjectCursor;
-
 import org.opensearch.OpenSearchException;
-import org.opensearch.action.ActionFuture;
-import org.opensearch.action.ActionListener;
 import org.opensearch.action.StepListener;
 import org.opensearch.action.admin.cluster.snapshots.create.CreateSnapshotResponse;
 import org.opensearch.action.admin.cluster.snapshots.get.GetSnapshotsRequest;
@@ -47,19 +43,22 @@ import org.opensearch.action.support.master.AcknowledgedResponse;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.SnapshotDeletionsInProgress;
 import org.opensearch.cluster.SnapshotsInProgress;
-import org.opensearch.common.Strings;
 import org.opensearch.common.UUIDs;
+import org.opensearch.common.action.ActionFuture;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.concurrent.UncategorizedExecutionException;
+import org.opensearch.core.action.ActionListener;
+import org.opensearch.core.common.Strings;
+import org.opensearch.core.rest.RestStatus;
 import org.opensearch.discovery.AbstractDisruptionTestCase;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.repositories.RepositoryData;
 import org.opensearch.repositories.RepositoryException;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.snapshots.mockstore.MockRepository;
-import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.InternalTestCluster;
+import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.disruption.NetworkDisruption;
 import org.opensearch.test.transport.MockTransportService;
 
@@ -135,6 +134,60 @@ public class ConcurrentSnapshotsIT extends AbstractSnapshotIntegTestCase {
         unblockNode(repoName, dataNode);
 
         assertSuccessful(createSlowFuture);
+    }
+
+    public void testSettingsUpdateFailWhenCreateSnapshotInProgress() throws Exception {
+        // Start a cluster with a cluster manager node and a data node
+        internalCluster().startClusterManagerOnlyNode();
+        final String dataNode = internalCluster().startDataOnlyNode();
+        final String repoName = "test-repo";
+        // Create a repository with random settings
+        Settings.Builder settings = randomRepositorySettings();
+        createRepository(repoName, "mock", settings);
+        createIndexWithContent("index");
+        // Start a full snapshot and block it on the data node
+        final ActionFuture<CreateSnapshotResponse> createSlowFuture = startFullSnapshotBlockedOnDataNode(
+            "slow-snapshot",
+            repoName,
+            dataNode
+        );
+        Thread.sleep(1000); // Wait for the snapshot to start
+        assertFalse(createSlowFuture.isDone()); // Ensure the snapshot is still in progress
+        // Attempt to update the repository settings while the snapshot is in progress
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> updateRepository(repoName, "mock", settings));
+        // Verify that the update fails with an appropriate exception
+        assertEquals("trying to modify or unregister repository that is currently used", ex.getMessage());
+        unblockNode(repoName, dataNode); // Unblock the snapshot
+        assertSuccessful(createSlowFuture); // Ensure the snapshot completes successfully
+    }
+
+    public void testSettingsUpdateFailWhenDeleteSnapshotInProgress() throws InterruptedException {
+        // Start a cluster with a cluster manager node and a data node
+        String clusterManagerName = internalCluster().startClusterManagerOnlyNode();
+        internalCluster().startDataOnlyNode();
+        final String repoName = "test-repo";
+        // Create a repository with random settings
+        Settings.Builder settings = randomRepositorySettings();
+        createRepository(repoName, "mock", settings);
+        createIndexWithContent("index");
+        final String snapshotName = "snapshot-1";
+        // Create a full snapshot
+        SnapshotInfo snapshotInfo = createFullSnapshot(repoName, snapshotName);
+        assertEquals(SnapshotState.SUCCESS, snapshotInfo.state()); // Ensure the snapshot was successful
+        assertEquals(RestStatus.OK, snapshotInfo.status()); // Ensure the snapshot status is OK
+        // Start deleting the snapshot and block it on the cluster manager node
+        ActionFuture<AcknowledgedResponse> future = deleteSnapshotBlockedOnClusterManager(repoName, snapshotName);
+        Thread.sleep(1000); // Wait for the delete operation to start
+        assertFalse(future.isDone()); // Ensure the delete operation is still in progress
+        // Attempt to update the repository settings while the delete operation is in progress
+        IllegalStateException ex = assertThrows(
+            IllegalStateException.class,
+            () -> updateRepository(repoName, "mock", randomRepositorySettings())
+        );
+        // Verify that the update fails with an appropriate exception
+        assertEquals("trying to modify or unregister repository that is currently used", ex.getMessage());
+        unblockNode(repoName, clusterManagerName); // Unblock the delete operation
+        assertAcked(future.actionGet()); // Wait for the delete operation to complete
     }
 
     public void testDeletesAreBatched() throws Exception {
@@ -1428,8 +1481,8 @@ public class ConcurrentSnapshotsIT extends AbstractSnapshotIntegTestCase {
     private static boolean snapshotHasCompletedShard(String snapshot, SnapshotsInProgress snapshotsInProgress) {
         for (SnapshotsInProgress.Entry entry : snapshotsInProgress.entries()) {
             if (entry.snapshot().getSnapshotId().getName().equals(snapshot)) {
-                for (ObjectCursor<SnapshotsInProgress.ShardSnapshotStatus> shard : entry.shards().values()) {
-                    if (shard.value.state().completed()) {
+                for (final SnapshotsInProgress.ShardSnapshotStatus shard : entry.shards().values()) {
+                    if (shard.state().completed()) {
                         return true;
                     }
                 }

@@ -39,12 +39,12 @@ import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.search.DocValuesFieldExistsQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.util.BytesRef;
 import org.opensearch.common.CheckedConsumer;
 import org.opensearch.index.mapper.KeywordFieldMapper;
@@ -113,16 +113,9 @@ public class HDRPercentilesAggregatorTests extends AggregatorTestCase {
         MappedFieldType fieldType = new RangeFieldMapper.RangeFieldType(fieldName, RangeType.DOUBLE);
         RangeFieldMapper.Range range = new RangeFieldMapper.Range(RangeType.DOUBLE, 1.0D, 5.0D, true, true);
         BytesRef encodedRange = RangeType.DOUBLE.encodeRanges(Collections.singleton(range));
-        expectThrows(
-            IllegalArgumentException.class,
-            () -> testCase(
-                new DocValuesFieldExistsQuery(fieldName),
-                iw -> { iw.addDocument(singleton(new BinaryDocValuesField(fieldName, encodedRange))); },
-                hdr -> {},
-                fieldType,
-                fieldName
-            )
-        );
+        expectThrows(IllegalArgumentException.class, () -> testCase(new DocValuesFieldExistsQuery(fieldName), iw -> {
+            iw.addDocument(singleton(new BinaryDocValuesField(fieldName, encodedRange)));
+        }, hdr -> {}, fieldType, fieldName));
     }
 
     public void testNoMatchingField() throws IOException {

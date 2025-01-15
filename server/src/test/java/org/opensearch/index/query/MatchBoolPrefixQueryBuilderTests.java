@@ -32,17 +32,18 @@
 
 package org.opensearch.index.query;
 
-import org.apache.lucene.tests.analysis.MockSynonymAnalyzer;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.FuzzyQuery;
+import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SynonymQuery;
 import org.apache.lucene.search.TermQuery;
-import org.opensearch.common.ParsingException;
+import org.apache.lucene.tests.analysis.MockSynonymAnalyzer;
 import org.opensearch.common.lucene.search.Queries;
+import org.opensearch.core.common.ParsingException;
 import org.opensearch.index.search.MatchQuery;
 import org.opensearch.test.AbstractQueryTestCase;
 
@@ -268,7 +269,7 @@ public class MatchBoolPrefixQueryBuilderTests extends AbstractQueryTestCase<Matc
             asList(
                 new TermQuery(new Term(TEXT_FIELD_NAME, "foo")),
                 new TermQuery(new Term(TEXT_FIELD_NAME, "bar")),
-                new PrefixQuery(new Term(TEXT_FIELD_NAME, "baz"))
+                new PrefixQuery(new Term(TEXT_FIELD_NAME, "baz"), MultiTermQuery.CONSTANT_SCORE_REWRITE)
             )
         );
     }
@@ -285,7 +286,7 @@ public class MatchBoolPrefixQueryBuilderTests extends AbstractQueryTestCase<Matc
                 new SynonymQuery.Builder(TEXT_FIELD_NAME).addTerm(new Term(TEXT_FIELD_NAME, "dogs"))
                     .addTerm(new Term(TEXT_FIELD_NAME, "dog"))
                     .build(),
-                new PrefixQuery(new Term(TEXT_FIELD_NAME, "red"))
+                new PrefixQuery(new Term(TEXT_FIELD_NAME, "red"), MultiTermQuery.CONSTANT_SCORE_REWRITE)
             )
         );
     }
@@ -293,7 +294,7 @@ public class MatchBoolPrefixQueryBuilderTests extends AbstractQueryTestCase<Matc
     public void testAnalysisSingleTerm() throws Exception {
         final MatchBoolPrefixQueryBuilder builder = new MatchBoolPrefixQueryBuilder(TEXT_FIELD_NAME, "foo");
         final Query query = builder.toQuery(createShardContext());
-        assertThat(query, equalTo(new PrefixQuery(new Term(TEXT_FIELD_NAME, "foo"))));
+        assertThat(query, equalTo(new PrefixQuery(new Term(TEXT_FIELD_NAME, "foo"), MultiTermQuery.CONSTANT_SCORE_REWRITE)));
     }
 
     private static void assertBooleanQuery(Query actual, List<Query> expectedClauseQueries) {

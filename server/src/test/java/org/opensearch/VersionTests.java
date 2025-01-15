@@ -49,8 +49,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import static org.opensearch.Version.V_2_3_0;
 import static org.opensearch.Version.MASK;
+import static org.opensearch.Version.V_2_3_0;
 import static org.opensearch.test.VersionUtils.allVersions;
 import static org.opensearch.test.VersionUtils.randomOpenSearchVersion;
 import static org.opensearch.test.VersionUtils.randomVersion;
@@ -119,10 +119,9 @@ public class VersionTests extends OpenSearchTestCase {
     }
 
     public void testMinimumIndexCompatibilityVersion() {
-        // note: all Legacy compatibility support will be removed in OpenSearch 3.0
-        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2000099).minimumIndexCompatibilityVersion());
-        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2010000).minimumIndexCompatibilityVersion());
-        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2000001).minimumIndexCompatibilityVersion());
+        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2000099 ^ MASK).minimumIndexCompatibilityVersion());
+        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2010000 ^ MASK).minimumIndexCompatibilityVersion());
+        assertEquals(LegacyESVersion.fromId(7000099), Version.fromId(2000001 ^ MASK).minimumIndexCompatibilityVersion());
     }
 
     public void testVersionConstantPresent() {
@@ -174,7 +173,7 @@ public class VersionTests extends OpenSearchTestCase {
     }
 
     public void testVersionNoPresentInSettings() {
-        Exception e = expectThrows(IllegalStateException.class, () -> Version.indexCreated(Settings.builder().build()));
+        Exception e = expectThrows(IllegalStateException.class, () -> IndexMetadata.indexCreated(Settings.builder().build()));
         assertThat(e.getMessage(), containsString("[index.version.created] is not present"));
     }
 
@@ -183,7 +182,7 @@ public class VersionTests extends OpenSearchTestCase {
         final Version version = Version.CURRENT;
         assertEquals(
             version,
-            Version.indexCreated(
+            IndexMetadata.indexCreated(
                 Settings.builder().put(IndexMetadata.SETTING_INDEX_UUID, "foo").put(IndexMetadata.SETTING_VERSION_CREATED, version).build()
             )
         );

@@ -33,8 +33,7 @@
 package org.opensearch.index.query;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.tests.analysis.CannedBinaryTokenStream;
-import org.apache.lucene.tests.analysis.MockSynonymAnalyzer;
+import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.ExtendedCommonTermsQuery;
 import org.apache.lucene.queries.spans.SpanNearQuery;
@@ -51,13 +50,15 @@ import org.apache.lucene.search.PointRangeQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SynonymQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.tests.analysis.CannedBinaryTokenStream;
+import org.apache.lucene.tests.analysis.MockSynonymAnalyzer;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.graph.GraphTokenStreamFiniteStrings;
 import org.opensearch.action.admin.indices.mapping.put.PutMappingRequest;
-import org.opensearch.common.ParsingException;
-import org.opensearch.common.Strings;
 import org.opensearch.common.compress.CompressedXContent;
 import org.opensearch.common.lucene.search.MultiPhrasePrefixQuery;
 import org.opensearch.common.lucene.search.Queries;
+import org.opensearch.core.common.ParsingException;
 import org.opensearch.index.mapper.MappedFieldType;
 import org.opensearch.index.mapper.MapperService;
 import org.opensearch.index.search.MatchQuery;
@@ -69,6 +70,7 @@ import org.hamcrest.Matcher;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -326,6 +328,20 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
         query.toQuery(context); // no exception
     }
 
+    public void testMatchQueryWithNoSidePath() throws Exception {
+        QueryShardContext testContext = createShardContext();
+        final MatchQuery testMatchQuery = new MatchQuery(testContext);
+        MockGraphAnalyzer mockAnalyzer = new MockGraphAnalyzer(createGiantGraphWithNoSide());
+        testMatchQuery.setAnalyzer(mockAnalyzer);
+        testMatchQuery.setAutoGenerateSynonymsPhraseQuery(true);
+        GraphTokenStreamFiniteStrings graph = new GraphTokenStreamFiniteStrings(mockAnalyzer.getTokenStream());
+        Iterator<TokenStream> graphIt = graph.getFiniteStrings();
+        assertEquals(graphIt.hasNext(), false);
+        String testField = "Gas Lift Storage Bed Frame with Arched Bed Head in King";
+        String testValue = "head board, bed head, bedhead, headboard";
+        testMatchQuery.parse(Type.BOOLEAN, testField, testValue); // no exception
+    }
+
     public void testDefaultFuzziness() {
         MatchQueryBuilder matchQueryBuilder = new MatchQueryBuilder("text", TEXT_FIELD_NAME).fuzziness(null);
         assertNull(matchQueryBuilder.fuzziness());
@@ -394,9 +410,7 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
         mapperService.merge(
             "_doc",
             new CompressedXContent(
-                Strings.toString(
-                    PutMappingRequest.simpleMapping("string_boost", "type=text", "string_no_pos", "type=text,index_options=docs")
-                )
+                PutMappingRequest.simpleMapping("string_boost", "type=text", "string_no_pos", "type=text,index_options=docs").toString()
             ),
             MapperService.MergeReason.MAPPING_UPDATE
         );
@@ -542,12 +556,18 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
 
         MockGraphAnalyzer(CannedBinaryTokenStream.BinaryToken[] tokens) {
             this.tokenStream = new CannedBinaryTokenStream(tokens);
+
         }
 
         @Override
         protected TokenStreamComponents createComponents(String fieldName) {
             return new TokenStreamComponents(r -> {}, tokenStream);
         }
+
+        public CannedBinaryTokenStream getTokenStream() {
+            return this.tokenStream;
+        }
+
     }
 
     /**
@@ -567,6 +587,14 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
                 i++;
             }
         }
+        return tokens.toArray(new CannedBinaryTokenStream.BinaryToken[0]);
+    }
+
+    /**
+     * Creates a graph token stream with no side path.
+     **/
+    private static CannedBinaryTokenStream.BinaryToken[] createGiantGraphWithNoSide() {
+        List<CannedBinaryTokenStream.BinaryToken> tokens = new ArrayList<>();
         return tokens.toArray(new CannedBinaryTokenStream.BinaryToken[0]);
     }
 
